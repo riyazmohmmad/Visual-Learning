@@ -1,0 +1,956 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users/{userId}
+//   - Permanent user profile keyed by Firebase Auth UID
+//
+// Collection: admins/{userId}
+//   - Privileged admin/sub-admin authorization registry keyed by Firebase Auth UID
+//   - Written exclusively by verified Super Admin (riyazmohmmad80@gmail.com) or Full Admin
+//
+// Collection: systemConfig/{configId}
+//   - Platform settings & configuration documents
+//   - Readable by verified admins; writable exclusively by verified Super Admin
+//
+// Collection: curriculumVideos/{videoId}
+//   - Teacher-managed curriculum videos
+//
+// Collection: curriculumSimulations/{simulationId}
+//   - Teacher-managed interactive simulations
+//
+// Collection: videoProgress/{progressId}
+//   - Per-student watch progress records
+//
+// Collection: quizSchedules/{quizId}
+//   - Teacher-scheduled quiz timing, marks, and attempt metadata
+//
+// Collection: assignmentSchedules/{assignmentId}
+//   - Teacher-scheduled assignment deadlines, upload limits, and late policies
+//
+// Collection: classes/{classId}
+//   - Permanent teacher-owned class registry and join codes
+//
+// Collection: enrollments/{enrollmentId}
+//   - Permanent student-to-class enrollment records keyed by ${studentId}_${classId}
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    // Authoritative email-based Super Admin check (no custom claims required).
+    // Strictly enforces email_verified == true to prevent email spoofing.
+    function isSuperAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'riyazmohmmad80@gmail.com';
+    }
+
+    function isActiveAdminDoc(adminData) {
+      return !('status' in adminData) || adminData.status == 'active';
+    }
+
+    function isFullAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin' &&
+        isActiveAdminDoc(get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+      );
+    }
+
+    function isAdmin() {
+      return isFullAdmin() || (
+        isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role in ['admin', 'sub_admin'] &&
+        isActiveAdminDoc(get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+      );
+    }
+
+    function isTeacher() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'active';
+    }
+
+    function isActiveStudent() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'active';
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 3 &&
+        email.size() <= 254 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidContentUrl(url) {
+      return url is string &&
+        url.size() >= 1 &&
+        url.size() <= 2048 &&
+        (url.matches('^https?://.*') || url.matches('^/uploads/.*'));
+    }
+
+    function isOptionalUrlOrEmpty(data, field) {
+      return !(field in data) ||
+        (data[field] is string &&
+          (data[field].size() == 0 ||
+            (data[field].size() <= 2048 && (data[field].matches('^https?://.*') || data[field].matches('^/uploads/.*')))));
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidPermissionsList(data) {
+      return !('permissions' in data) || (
+        data.permissions is list &&
+        data.permissions.size() <= 12 &&
+        data.permissions.hasOnly([
+          'manage_students',
+          'manage_teachers',
+          'manage_subjects_classes',
+          'manage_content',
+          'manage_live_classes',
+          'view_analytics'
+        ])
+      );
+    }
+
+    function hasValidUserAllowedKeys(data) {
+      return data.keys().hasOnly([
+        'uid',
+        'fullName',
+        'email',
+        'role',
+        'createdAt',
+        'updatedAt',
+        'lastLoginAt',
+        'profileCompleted',
+        'accountStatus',
+        'institution',
+        'phone',
+        'dateOfBirth',
+        'gender',
+        'bio',
+        'avatar',
+        'qualification',
+        'specialization',
+        'studentId',
+        'teacherId',
+        'adminId',
+        'permissions'
+      ]);
+    }
+
+    function hasValidUserCoreFields(data, userId) {
+      return hasValidUserAllowedKeys(data) &&
+        data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'createdAt', 'updatedAt', 'profileCompleted', 'accountStatus']) &&
+        data.uid is string && data.uid == userId &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+        isValidEmail(data.email) &&
+        data.role in ['student', 'teacher', 'admin', 'super_admin', 'sub_admin'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!('lastLoginAt' in data) || data.lastLoginAt is timestamp) &&
+        data.profileCompleted is bool &&
+        data.accountStatus in ['active', 'disabled'] &&
+        isOptionalString(data, 'institution', 160) &&
+        isOptionalString(data, 'phone', 40) &&
+        isOptionalString(data, 'dateOfBirth', 32) &&
+        isOptionalString(data, 'gender', 32) &&
+        isOptionalString(data, 'bio', 1000) &&
+        isOptionalString(data, 'avatar', 700000) &&
+        isOptionalString(data, 'qualification', 160) &&
+        isOptionalString(data, 'specialization', 160) &&
+        isOptionalString(data, 'studentId', 40) &&
+        isOptionalString(data, 'teacherId', 40) &&
+        isOptionalString(data, 'adminId', 40) &&
+        isValidPermissionsList(data);
+    }
+
+    function isValidSelfRegistration(data, userId) {
+      return hasValidUserCoreFields(data, userId) &&
+        data.uid == request.auth.uid &&
+        request.auth.token.email is string &&
+        data.email.lower() == request.auth.token.email.lower() &&
+        data.role in ['student', 'teacher'] &&
+        data.accountStatus == 'active' &&
+        data.createdAt == request.time &&
+        data.updatedAt == request.time &&
+        (!('lastLoginAt' in data) || data.lastLoginAt == request.time) &&
+        !('permissions' in data) &&
+        !('adminId' in data);
+    }
+
+    function isValidOwnerProfileUpdate(newData, oldData, userId) {
+      return oldData.accountStatus == 'active' &&
+        hasValidUserCoreFields(newData, userId) &&
+        newData.diff(oldData).affectedKeys().hasOnly([
+          'fullName',
+          'institution',
+          'phone',
+          'dateOfBirth',
+          'gender',
+          'bio',
+          'avatar',
+          'qualification',
+          'specialization',
+          'profileCompleted',
+          'updatedAt',
+          'lastLoginAt'
+        ]) &&
+        newData.uid == oldData.uid &&
+        newData.email == oldData.email &&
+        newData.role == oldData.role &&
+        newData.createdAt == oldData.createdAt &&
+        newData.accountStatus == oldData.accountStatus &&
+        newData.updatedAt == request.time &&
+        (!('lastLoginAt' in newData.diff(oldData).affectedKeys()) || newData.lastLoginAt == request.time);
+    }
+
+    function isValidAdminRecord(data, userId) {
+      return data.keys().hasOnly(['uid', 'email', 'role', 'status', 'permissions', 'createdAt', 'updatedAt', 'createdBy']) &&
+        data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+        data.uid is string && data.uid == userId &&
+        isValidEmail(data.email) &&
+        data.role in ['admin', 'super_admin', 'sub_admin'] &&
+        (!('status' in data) || data.status in ['active', 'disabled']) &&
+        isValidPermissionsList(data) &&
+        isOptionalString(data, 'createdBy', 128) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidSystemConfig(data) {
+      return data.keys().hasOnly([
+          'allowStudentRegistration',
+          'allowTeacherRegistration',
+          'requireEmailVerification',
+          'maintenanceMode',
+          'maxSubAdmins',
+          'siteTitle',
+          'securityNotice',
+          'superAdminEmail',
+          'adminSetupCompleted',
+          'updatedAt',
+          'updatedBy'
+        ]) &&
+        (!('allowStudentRegistration' in data) || data.allowStudentRegistration is bool) &&
+        (!('allowTeacherRegistration' in data) || data.allowTeacherRegistration is bool) &&
+        (!('requireEmailVerification' in data) || data.requireEmailVerification is bool) &&
+        (!('maintenanceMode' in data) || data.maintenanceMode is bool) &&
+        (!('maxSubAdmins' in data) || (data.maxSubAdmins is number && data.maxSubAdmins >= 0 && data.maxSubAdmins <= 50)) &&
+        isOptionalString(data, 'siteTitle', 120) &&
+        isOptionalString(data, 'securityNotice', 400) &&
+        (!('superAdminEmail' in data) || isValidEmail(data.superAdminEmail)) &&
+        (!('adminSetupCompleted' in data) || data.adminSetupCompleted is bool) &&
+        isOptionalString(data, 'updatedBy', 128) &&
+        (!('updatedAt' in data) || data.updatedAt == request.time);
+    }
+
+    function isValidCurriculumVideo(data, videoId) {
+      return data.keys().hasOnly([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'topicId',
+          'title',
+          'description',
+          'contentUrl',
+          'thumbnailUrl',
+          'sourceType',
+          'fileName',
+          'durationSeconds',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'topicId',
+          'title',
+          'description',
+          'contentUrl',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == videoId &&
+        isValidId(data.teacherId) &&
+        isValidId(data.subjectId) &&
+        isValidId(data.chapterId) &&
+        isValidId(data.topicId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.description is string && data.description.size() <= 2000 &&
+        isValidContentUrl(data.contentUrl) &&
+        isOptionalUrlOrEmpty(data, 'thumbnailUrl') &&
+        (!('sourceType' in data) || data.sourceType in ['url', 'youtube', 'upload']) &&
+        isOptionalString(data, 'fileName', 255) &&
+        (!('durationSeconds' in data) || (data.durationSeconds is number && data.durationSeconds >= 0 && data.durationSeconds <= 86400)) &&
+        data.status in ['draft', 'published'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCurriculumSimulation(data, simulationId) {
+      return data.keys().hasOnly([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'topicId',
+          'title',
+          'description',
+          'category',
+          'contentUrl',
+          'thumbnailUrl',
+          'sourceType',
+          'fileName',
+          'instructions',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'topicId',
+          'title',
+          'description',
+          'contentUrl',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == simulationId &&
+        isValidId(data.teacherId) &&
+        isValidId(data.subjectId) &&
+        isValidId(data.chapterId) &&
+        isValidId(data.topicId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 2000 &&
+        isOptionalString(data, 'category', 100) &&
+        isValidContentUrl(data.contentUrl) &&
+        isOptionalUrlOrEmpty(data, 'thumbnailUrl') &&
+        (!('sourceType' in data) || data.sourceType in ['url', 'upload']) &&
+        isOptionalString(data, 'fileName', 255) &&
+        isOptionalString(data, 'instructions', 2000) &&
+        data.status in ['draft', 'published'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidVideoProgress(data, progressId) {
+      return data.keys().hasOnly([
+          'id',
+          'uid',
+          'videoId',
+          'subjectId',
+          'topicId',
+          'watchedSeconds',
+          'durationSeconds',
+          'completionPercent',
+          'completed',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'uid',
+          'videoId',
+          'subjectId',
+          'topicId',
+          'watchedSeconds',
+          'completionPercent',
+          'completed',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == progressId &&
+        data.uid is string && data.uid == request.auth.uid &&
+        isValidId(data.videoId) &&
+        isValidId(data.subjectId) &&
+        isValidId(data.topicId) &&
+        data.watchedSeconds is number && data.watchedSeconds >= 0 && data.watchedSeconds <= 86400 &&
+        (!('durationSeconds' in data) || (data.durationSeconds is number && data.durationSeconds >= 0 && data.durationSeconds <= 86400)) &&
+        data.completionPercent is number && data.completionPercent >= 0 && data.completionPercent <= 100 &&
+        data.completed is bool &&
+        data.updatedAt is timestamp &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidQuizSchedule(data, quizId) {
+      return data.keys().hasOnly([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'title',
+          'description',
+          'startAt',
+          'dueAt',
+          'durationMinutes',
+          'maxMarks',
+          'passingMarks',
+          'maxAttempts',
+          'allowLateSubmission',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'teacherId',
+          'subjectId',
+          'title',
+          'durationMinutes',
+          'maxMarks',
+          'passingMarks',
+          'maxAttempts',
+          'allowLateSubmission',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == quizId &&
+        isValidId(data.teacherId) &&
+        isValidId(data.subjectId) &&
+        (!('chapterId' in data) || isValidId(data.chapterId)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        isOptionalString(data, 'description', 2000) &&
+        isOptionalString(data, 'startAt', 64) &&
+        isOptionalString(data, 'dueAt', 64) &&
+        data.durationMinutes is number && data.durationMinutes >= 1 && data.durationMinutes <= 600 &&
+        data.maxMarks is number && data.maxMarks >= 1 && data.maxMarks <= 10000 &&
+        data.passingMarks is number && data.passingMarks >= 0 && data.passingMarks <= data.maxMarks &&
+        data.maxAttempts is number && data.maxAttempts >= 1 && data.maxAttempts <= 100 &&
+        data.allowLateSubmission is bool &&
+        data.status in ['draft', 'published'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAssignmentSchedule(data, assignmentId) {
+      return data.keys().hasOnly([
+          'id',
+          'teacherId',
+          'subjectId',
+          'chapterId',
+          'title',
+          'description',
+          'startAt',
+          'dueAt',
+          'maxMarks',
+          'allowedFileTypes',
+          'maxFileSizeMb',
+          'allowLateSubmission',
+          'latePenaltyPercent',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'teacherId',
+          'subjectId',
+          'title',
+          'maxMarks',
+          'allowedFileTypes',
+          'maxFileSizeMb',
+          'allowLateSubmission',
+          'latePenaltyPercent',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == assignmentId &&
+        isValidId(data.teacherId) &&
+        isValidId(data.subjectId) &&
+        (!('chapterId' in data) || isValidId(data.chapterId)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        isOptionalString(data, 'description', 4000) &&
+        isOptionalString(data, 'startAt', 64) &&
+        isOptionalString(data, 'dueAt', 64) &&
+        data.maxMarks is number && data.maxMarks >= 1 && data.maxMarks <= 10000 &&
+        data.allowedFileTypes is list && data.allowedFileTypes.size() <= 12 &&
+        data.maxFileSizeMb is number && data.maxFileSizeMb >= 1 && data.maxFileSizeMb <= 25 &&
+        data.allowLateSubmission is bool &&
+        data.latePenaltyPercent is number && data.latePenaltyPercent >= 0 && data.latePenaltyPercent <= 100 &&
+        data.status in ['draft', 'published'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidClassRecord(data, classId) {
+      return data.keys().hasOnly([
+          'id',
+          'name',
+          'code',
+          'description',
+          'teacherId',
+          'teacherName',
+          'section',
+          'classCode',
+          'status',
+          'iconName',
+          'color',
+          'thumbnail',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'name',
+          'description',
+          'teacherId',
+          'teacherName',
+          'section',
+          'classCode',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == classId &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+        isOptionalString(data, 'code', 32) &&
+        data.description is string && data.description.size() <= 2000 &&
+        isValidId(data.teacherId) &&
+        data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 120 &&
+        data.section is string && data.section.size() >= 1 && data.section.size() <= 32 &&
+        data.classCode is string && data.classCode.size() >= 3 && data.classCode.size() <= 40 &&
+        data.status in ['active', 'draft', 'archived', 'disabled'] &&
+        isOptionalString(data, 'iconName', 64) &&
+        isOptionalString(data, 'color', 32) &&
+        isOptionalString(data, 'thumbnail', 512) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidClassEnrollment(data, enrollmentId) {
+      return data.keys().hasOnly([
+          'id',
+          'studentId',
+          'classId',
+          'teacherId',
+          'classCode',
+          'className',
+          'section',
+          'teacherName',
+          'studentName',
+          'studentEmail',
+          'enrolledBy',
+          'status',
+          'enrolledAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id',
+          'studentId',
+          'classId',
+          'teacherId',
+          'classCode',
+          'className',
+          'status',
+          'enrolledAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == enrollmentId &&
+        isValidId(data.studentId) &&
+        isValidId(data.classId) &&
+        isValidId(data.teacherId) &&
+        enrollmentId == (data.studentId + '_' + data.classId) &&
+        data.classCode is string && data.classCode.size() >= 3 && data.classCode.size() <= 40 &&
+        data.className is string && data.className.size() >= 1 && data.className.size() <= 160 &&
+        isOptionalString(data, 'section', 32) &&
+        isOptionalString(data, 'teacherName', 120) &&
+        isOptionalString(data, 'studentName', 120) &&
+        (!('studentEmail' in data) || isValidEmail(data.studentEmail)) &&
+        (!('enrolledBy' in data) || isValidId(data.enrolledBy)) &&
+        data.status in ['active', 'removed'] &&
+        data.enrolledAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Platform settings & system configuration
+    match /systemConfig/{configId} {
+      allow get: if isValidId(configId) && isAdmin();
+      allow list: if false;
+      allow create, update: if isValidId(configId) && isSuperAdmin() && isValidSystemConfig(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      // Public self-registration strictly limited to student or teacher roles.
+      // Privileged admin roles can NEVER be self-registered by ordinary users.
+      allow create: if isValidId(userId) && (
+        (isOwner(userId) && isValidSelfRegistration(request.resource.data, userId)) ||
+        (isSuperAdmin() &&
+          isOwner(userId) &&
+          hasValidUserCoreFields(request.resource.data, userId) &&
+          request.resource.data.role == 'super_admin' &&
+          request.resource.data.accountStatus == 'active' &&
+          request.resource.data.email.lower() == 'riyazmohmmad80@gmail.com' &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.updatedAt == request.time) ||
+        (isFullAdmin() &&
+          hasValidUserCoreFields(request.resource.data, userId) &&
+          request.resource.data.role != 'super_admin' &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.updatedAt == request.time)
+      );
+
+      allow update: if isValidId(userId) && (
+        (isOwner(userId) && isValidOwnerProfileUpdate(request.resource.data, resource.data, userId)) ||
+        (isSuperAdmin() &&
+          isOwner(userId) &&
+          hasValidUserCoreFields(request.resource.data, userId) &&
+          request.resource.data.role == 'super_admin' &&
+          request.resource.data.accountStatus == 'active' &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.email.lower() == 'riyazmohmmad80@gmail.com' &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.updatedAt == request.time) ||
+        (isFullAdmin() &&
+          resource.data.role != 'super_admin' &&
+          request.resource.data.role != 'super_admin' &&
+          hasValidUserCoreFields(request.resource.data, userId) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.updatedAt == request.time)
+      );
+
+      allow delete: if isValidId(userId) &&
+        isFullAdmin() &&
+        resource.data.role != 'super_admin' &&
+        userId != request.auth.uid;
+    }
+
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      // Super Admin may record their own super_admin entry, and Full Admins / Super Admin may manage admin/sub_admin entries.
+      // No one can ever grant super_admin to another UID.
+      allow create: if isValidId(userId) && (
+        (isSuperAdmin() &&
+          isOwner(userId) &&
+          isValidAdminRecord(request.resource.data, userId) &&
+          request.resource.data.role == 'super_admin' &&
+          request.resource.data.email.lower() == 'riyazmohmmad80@gmail.com' &&
+          request.resource.data.createdAt == request.time) ||
+        (isFullAdmin() &&
+          isValidAdminRecord(request.resource.data, userId) &&
+          request.resource.data.role in ['admin', 'sub_admin'] &&
+          request.resource.data.createdAt == request.time)
+      );
+
+      allow update: if isValidId(userId) && (
+        (isSuperAdmin() &&
+          isOwner(userId) &&
+          isValidAdminRecord(request.resource.data, userId) &&
+          request.resource.data.role == 'super_admin' &&
+          request.resource.data.email.lower() == 'riyazmohmmad80@gmail.com' &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.createdAt == resource.data.createdAt) ||
+        (isFullAdmin() &&
+          resource.data.role != 'super_admin' &&
+          isValidAdminRecord(request.resource.data, userId) &&
+          request.resource.data.role in ['admin', 'sub_admin'] &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.createdAt == resource.data.createdAt)
+      );
+
+      allow delete: if isValidId(userId) &&
+        isSuperAdmin() &&
+        resource.data.role != 'super_admin' &&
+        userId != request.auth.uid;
+    }
+
+    match /curriculumVideos/{videoId} {
+      // Students may ONLY read published videos; owning teachers and admins may read drafts too.
+      allow get: if isValidId(videoId) && isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Only active teachers (for their own teacherId) or admins may create videos.
+      allow create: if isValidId(videoId) &&
+        ((isTeacher() && request.resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidCurriculumVideo(request.resource.data, videoId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      // Only owning teacher or admin may edit; immutable id, teacherId, createdAt.
+      allow update: if isValidId(videoId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidCurriculumVideo(request.resource.data, videoId) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+
+      allow delete: if isValidId(videoId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    match /curriculumSimulations/{simulationId} {
+      // Students may ONLY read published simulations; owning teachers and admins may read drafts too.
+      allow get: if isValidId(simulationId) && isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Only active teachers (for their own teacherId) or admins may create simulations.
+      allow create: if isValidId(simulationId) &&
+        ((isTeacher() && request.resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidCurriculumSimulation(request.resource.data, simulationId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      // Only owning teacher or admin may edit; immutable id, teacherId, createdAt.
+      allow update: if isValidId(simulationId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidCurriculumSimulation(request.resource.data, simulationId) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+
+      allow delete: if isValidId(simulationId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    match /videoProgress/{progressId} {
+      allow get: if isValidId(progressId) && isSignedIn() && (
+        resource == null || resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(progressId) && isSignedIn() && isValidVideoProgress(request.resource.data, progressId);
+      allow update: if isValidId(progressId) && isSignedIn() &&
+        resource.data.uid == request.auth.uid &&
+        isValidVideoProgress(request.resource.data, progressId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.videoId == resource.data.videoId;
+      allow delete: if isValidId(progressId) && isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    match /quizSchedules/{quizId} {
+      allow get: if isValidId(quizId) && isSignedIn() && (
+        resource == null ||
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isValidId(quizId) &&
+        ((isTeacher() && request.resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidQuizSchedule(request.resource.data, quizId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if isValidId(quizId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidQuizSchedule(request.resource.data, quizId) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if isValidId(quizId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    match /assignmentSchedules/{assignmentId} {
+      allow get: if isValidId(assignmentId) && isSignedIn() && (
+        resource == null ||
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.status == 'published' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isValidId(assignmentId) &&
+        ((isTeacher() && request.resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidAssignmentSchedule(request.resource.data, assignmentId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if isValidId(assignmentId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        isValidAssignmentSchedule(request.resource.data, assignmentId) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if isValidId(assignmentId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    // Permanent teacher-owned class registry
+    match /classes/{classId} {
+      allow get: if isValidId(classId) && isSignedIn() && (
+        resource == null ||
+        resource.data.status == 'active' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.status == 'active' ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isValidId(classId) &&
+        isSignedIn() &&
+        isValidClassRecord(request.resource.data, classId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time &&
+        ((isTeacher() && request.resource.data.teacherId == request.auth.uid) || isAdmin());
+      allow update: if isValidId(classId) &&
+        isSignedIn() &&
+        isValidClassRecord(request.resource.data, classId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'code',
+          'description',
+          'teacherName',
+          'section',
+          'classCode',
+          'status',
+          'iconName',
+          'color',
+          'thumbnail',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(classId) &&
+        isSignedIn() &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    // Permanent student-to-class enrollment records keyed by ${studentId}_${classId}
+    match /enrollments/{enrollmentId} {
+      // Enrolled student, owning class teacher, or admin may read enrollment records.
+      allow get: if isValidId(enrollmentId) && isSignedIn() && (
+        resource == null ||
+        resource.data.studentId == request.auth.uid ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      // Secure list queries: students see only their own enrollments, teachers see only enrollments in their classes, admins see all.
+      allow list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin()
+      );
+      // Students may create an active enrollment ONLY for their own UID.
+      // Owning teachers and admins may also explicitly enroll students.
+      allow create: if isValidId(enrollmentId) &&
+        isSignedIn() &&
+        isValidClassEnrollment(request.resource.data, enrollmentId) &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.enrolledAt == request.time &&
+        request.resource.data.updatedAt == request.time && (
+          (isActiveStudent() &&
+            request.resource.data.studentId == request.auth.uid &&
+            (!exists(/databases/$(database)/documents/classes/$(request.resource.data.classId)) || (
+              get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.status == 'active' &&
+              get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.teacherId == request.resource.data.teacherId &&
+              get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.classCode == request.resource.data.classCode
+            ))) ||
+          (isTeacher() && request.resource.data.teacherId == request.auth.uid) ||
+          isAdmin()
+        );
+      // Students cannot modify enrollment records; only owning teachers or admins may update metadata/status.
+      allow update: if isValidId(enrollmentId) &&
+        isSignedIn() &&
+        isValidClassEnrollment(request.resource.data, enrollmentId) &&
+        ((isTeacher() && resource.data.teacherId == request.auth.uid) || isAdmin()) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.classId == resource.data.classId &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.enrolledAt == resource.data.enrolledAt &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'className',
+          'classCode',
+          'section',
+          'teacherName',
+          'studentName',
+          'studentEmail',
+          'updatedAt'
+        ]);
+      // Only the class's owning teacher or an admin may explicitly delete an enrollment record.
+      allow delete: if isValidId(enrollmentId) &&
+        isSignedIn() && (
+          (isTeacher() && resource.data.teacherId == request.auth.uid) ||
+          isAdmin()
+        );
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "VisuaLearn",
+  "description": "Smart Study Learning Platform featuring visual explanations, interactive simulations, animated educational videos, teacher notes, and adaptive quizzes.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

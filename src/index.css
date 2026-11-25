@@ -1,0 +1,311 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   VisuaLearn Global Typography & Design System Tokens
+   Mobile-first scale (320px → 1920px):
+     - Display Hero:       24px → 44px  (clamp)
+     - Main Page Heading:  22px → 26px  (clamp)
+     - Section Heading:    17px → 20px  (clamp)
+     - Card Heading:       15px → 16px  (clamp)
+     - Body Copy:          14px → 15px  (clamp)
+     - Navigation / Tabs:  13px → 14px
+     - Buttons:            13px → 14px
+     - Labels / Metadata:  11px → 12px
+     - Helper / Captions:  12px
+   ============================================================================ */
+:root {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Responsive Typography Scale */
+  --text-display: clamp(1.5rem, 2.8vw + 0.9rem, 2.75rem);      /* 24px -> 44px */
+  --text-page-title: clamp(1.375rem, 0.65vw + 1.2rem, 1.625rem); /* 22px -> 26px */
+  --text-section-title: clamp(1.0625rem, 0.45vw + 0.96rem, 1.25rem); /* 17px -> 20px */
+  --text-card-title: clamp(0.9375rem, 0.2vw + 0.89rem, 1rem);  /* 15px -> 16px */
+  --text-body: clamp(0.875rem, 0.15vw + 0.84rem, 0.9375rem);   /* 14px -> 15px */
+  --text-nav: 0.84375rem;                                      /* 13.5px */
+  --text-btn: 0.84375rem;                                      /* 13.5px */
+  --text-label: 0.75rem;                                       /* 12px */
+  --text-micro: 0.6875rem;                                     /* 11px */
+  --text-helper: 0.75rem;                                      /* 12px */
+  --text-metric: clamp(1.25rem, 0.5vw + 1.12rem, 1.5rem);      /* 20px -> 24px */
+
+  /* Line Heights */
+  --leading-tight: 1.22;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.65;
+
+  /* Letter Spacing */
+  --tracking-display: -0.025em;
+  --tracking-heading: -0.015em;
+  --tracking-normal: -0.005em;
+  --tracking-label: 0.02em;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    height: auto;
+    min-height: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--leading-normal);
+    letter-spacing: var(--tracking-normal);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    height: auto;
+    min-height: 100dvh;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  #root {
+    min-height: 100dvh;
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  img,
+  video,
+  canvas,
+  iframe {
+    max-width: 100%;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-sans);
+    text-wrap: balance;
+  }
+
+  button,
+  a,
+  select,
+  summary,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: var(--text-body);
+    line-height: 1.45;
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .type-display {
+    font-size: var(--text-display);
+    line-height: 1.15;
+    letter-spacing: var(--tracking-display);
+    font-weight: 700;
+  }
+
+  .type-page-title {
+    font-size: var(--text-page-title);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-heading);
+    font-weight: 700;
+  }
+
+  .type-section-title {
+    font-size: var(--text-section-title);
+    line-height: var(--leading-snug);
+    letter-spacing: var(--tracking-heading);
+    font-weight: 600;
+  }
+
+  .type-card-title {
+    font-size: var(--text-card-title);
+    line-height: var(--leading-snug);
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+
+  .type-body {
+    font-size: var(--text-body);
+    line-height: var(--leading-normal);
+    font-weight: 400;
+  }
+
+  .type-nav {
+    font-size: var(--text-nav);
+    line-height: 1.35;
+    font-weight: 500;
+  }
+
+  .type-btn {
+    font-size: var(--text-btn);
+    line-height: 1.25;
+    font-weight: 600;
+  }
+
+  .type-label {
+    font-size: var(--text-label);
+    line-height: 1.4;
+    font-weight: 500;
+  }
+
+  .type-helper {
+    font-size: var(--text-helper);
+    line-height: 1.5;
+    font-weight: 400;
+  }
+
+  .type-metric {
+    font-size: var(--text-metric);
+    line-height: 1.2;
+    letter-spacing: var(--tracking-heading);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+@utility pb-safe-lg {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+}
+
+@utility pb-mobile-dock {
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Native Smartphone Bottom Sheet & Dock Utilities */
+@keyframes mobileSheetUp {
+  from {
+    opacity: 0.4;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mobile-sheet-enter {
+  animation: mobileSheetUp 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes modalPanelEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-panel-enter {
+  animation: modalPanelEnter 170ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.mobile-drag-handle {
+  width: 2.5rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background-color: #cbd5e1;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mobile-bottom-dock {
+  background-color: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 -4px 20px -6px rgba(15, 23, 42, 0.08);
+}
+
+/* Custom scrollbar for clean light education theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,267 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Permanent VisuaLearn user profile linked 1:1 with Firebase Authentication UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["student", "teacher", "admin", "super_admin", "sub_admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "profileCompleted": { "type": "boolean" },
+        "accountStatus": { "type": "string", "enum": ["active", "disabled"] },
+        "institution": { "type": "string" },
+        "phone": { "type": "string" },
+        "dateOfBirth": { "type": "string" },
+        "gender": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatar": { "type": "string" },
+        "qualification": { "type": "string" },
+        "specialization": { "type": "string" },
+        "studentId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "adminId": { "type": "string" },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["uid", "fullName", "email", "role", "createdAt", "profileCompleted", "accountStatus"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Privileged administrator authorization registry keyed by Firebase UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "super_admin", "sub_admin"] },
+        "status": { "type": "string", "enum": ["active", "disabled"] },
+        "permissions": { "type": "array", "items": { "type": "string" } },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "CurriculumVideo": {
+      "title": "CurriculumVideo",
+      "description": "Teacher-managed video lesson linked to a specific subject, chapter, and topic/subtopic",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "topicId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "contentUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "sourceType": { "type": "string", "enum": ["url", "youtube", "upload"] },
+        "fileName": { "type": "string" },
+        "durationSeconds": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "teacherId", "subjectId", "chapterId", "topicId", "title", "description", "contentUrl", "status", "createdAt", "updatedAt"]
+    },
+    "CurriculumSimulation": {
+      "title": "CurriculumSimulation",
+      "description": "Teacher-managed interactive educational simulation linked to a specific subject, chapter, and topic/subtopic",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "topicId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "contentUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "sourceType": { "type": "string", "enum": ["url", "upload"] },
+        "fileName": { "type": "string" },
+        "instructions": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "teacherId", "subjectId", "chapterId", "topicId", "title", "description", "contentUrl", "status", "createdAt", "updatedAt"]
+    },
+    "VideoProgress": {
+      "title": "VideoProgress",
+      "description": "Per-student watch progress and resume timestamp for a curriculum video",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "videoId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "topicId": { "type": "string" },
+        "watchedSeconds": { "type": "number" },
+        "durationSeconds": { "type": "number" },
+        "completionPercent": { "type": "number" },
+        "completed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "videoId", "subjectId", "topicId", "watchedSeconds", "completionPercent", "completed", "updatedAt"]
+    },
+    "SystemAdminSetup": {
+      "title": "SystemAdminSetup",
+      "description": "Platform configuration and settings managed exclusively by the verified Super Admin",
+      "type": "object",
+      "properties": {
+        "allowStudentRegistration": { "type": "boolean" },
+        "allowTeacherRegistration": { "type": "boolean" },
+        "requireEmailVerification": { "type": "boolean" },
+        "maintenanceMode": { "type": "boolean" },
+        "maxSubAdmins": { "type": "number" },
+        "siteTitle": { "type": "string" },
+        "securityNotice": { "type": "string" },
+        "superAdminEmail": { "type": "string", "format": "email" },
+        "adminSetupCompleted": { "type": "boolean" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["superAdminEmail"]
+    },
+    "QuizSchedule": {
+      "title": "QuizSchedule",
+      "description": "Teacher-scheduled quiz metadata including availability window, duration, marks, and attempt rules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startAt": { "type": "string" },
+        "dueAt": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "maxMarks": { "type": "number" },
+        "passingMarks": { "type": "number" },
+        "maxAttempts": { "type": "number" },
+        "allowLateSubmission": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "teacherId", "subjectId", "title", "durationMinutes", "maxMarks", "passingMarks", "maxAttempts", "allowLateSubmission", "status", "createdAt", "updatedAt"]
+    },
+    "AssignmentSchedule": {
+      "title": "AssignmentSchedule",
+      "description": "Teacher-scheduled assignment metadata including start/due deadline, file upload rules, and late submission policy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startAt": { "type": "string" },
+        "dueAt": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "allowedFileTypes": { "type": "array", "items": { "type": "string" } },
+        "maxFileSizeMb": { "type": "number" },
+        "allowLateSubmission": { "type": "boolean" },
+        "latePenaltyPercent": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "teacherId", "subjectId", "title", "maxMarks", "allowedFileTypes", "maxFileSizeMb", "allowLateSubmission", "latePenaltyPercent", "status", "createdAt", "updatedAt"]
+    },
+    "ClassRecord": {
+      "title": "ClassRecord",
+      "description": "Permanent teacher-owned class registry synchronized with Cloud Firestore for resilient enrollment lookups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "description": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "section": { "type": "string" },
+        "classCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "draft", "archived", "disabled"] },
+        "iconName": { "type": "string" },
+        "color": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description", "teacherId", "teacherName", "section", "classCode", "status", "createdAt", "updatedAt"]
+    },
+    "ClassEnrollment": {
+      "title": "ClassEnrollment",
+      "description": "Permanent student-to-class enrollment record keyed by deterministic ${studentId}_${classId}",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "classCode": { "type": "string" },
+        "className": { "type": "string" },
+        "section": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string", "format": "email" },
+        "enrolledBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "removed"] },
+        "enrolledAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "studentId", "classId", "teacherId", "classCode", "className", "status", "enrolledAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Permanent VisuaLearn user profiles indexed by Firebase UID."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Protected administrator registry indexed by Firebase UID."
+    },
+    "/systemConfig/{configId}": {
+      "schema": { "$ref": "#/entities/SystemAdminSetup" },
+      "description": "Protected backend-only system configuration and one-time initial admin setup lock."
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/ClassRecord" },
+      "description": "Permanent teacher-owned classes and join codes mirrored in Firestore."
+    },
+    "/enrollments/{enrollmentId}": {
+      "schema": { "$ref": "#/entities/ClassEnrollment" },
+      "description": "Permanent student class enrollments keyed deterministically as ${studentId}_${classId}."
+    },
+    "/curriculumVideos/{videoId}": {
+      "schema": { "$ref": "#/entities/CurriculumVideo" },
+      "description": "Curriculum video lessons linked to subject, chapter, and topic/subtopic. Drafts visible only to owning teacher and admins."
+    },
+    "/curriculumSimulations/{simulationId}": {
+      "schema": { "$ref": "#/entities/CurriculumSimulation" },
+      "description": "Interactive simulations linked to subject, chapter, and topic/subtopic. Drafts visible only to owning teacher and admins."
+    },
+    "/videoProgress/{progressId}": {
+      "schema": { "$ref": "#/entities/VideoProgress" },
+      "description": "Per-student video playback progress for resuming videos across sessions."
+    },
+    "/quizSchedules/{quizId}": {
+      "schema": { "$ref": "#/entities/QuizSchedule" },
+      "description": "Scheduled quiz timing, attempt limits, and deadline metadata. Drafts visible only to owning teacher and admins."
+    },
+    "/assignmentSchedules/{assignmentId}": {
+      "schema": { "$ref": "#/entities/AssignmentSchedule" },
+      "description": "Scheduled assignment window, file policy, and late-submission metadata. Drafts visible only to owning teacher and admins."
+    }
+  }
+}
